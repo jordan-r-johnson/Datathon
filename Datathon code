@@ -1,0 +1,189 @@
+---
+title: "NHANES Analysis - Diabetes Data"
+author: "Laura Fox, Jacob Lackey & Jordan Johnson"
+date: "3/27/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(ISLR)
+library(maptree)
+library(faraway)
+library(GGally)
+library(reshape2)
+library("partykit")
+library(patchwork)
+library(ROCR)
+library(gains)
+library(aod)
+library(InformationValue)
+```
+
+# Importing Clean Data
+
+* Took out missing values for Weight, Age, Creatine and Cholesterol
+* Removed the "Borderline" = 3 and "missing" = 9 observations for the "Doctor told you have Diabetes" column
+* Converted "Doctor told you have Diabetes" column into binomial, 1=1 (Yes) and 2=0 (No)
+
+```{r}
+diabetesNHANES <- read_excel(
+  "/Users/jordanjohnson/Desktop/UND Datathon Project/nhanesDatathonActual.xlsx", 
+  sheet = "CleanData", skip = 2)
+```
+
+### Research question: How does Weight, Creatinine, Cholesteral and Age affect the probability of being diagnosed with Diabetes
+
+
+# Data Summary of predictor variables
+```{r}
+summary(diabetesNHANES[,2:5])
+```
+From looking at the plots below, it is evident that there are quite a few more doctor told them they had diabetes = NO than Yes observations. This was expected when we chose this question. 
+
+
+```{r}
+Weightplot<-ggplot(diabetesNHANES, aes(DoctorDiabetes, Weight, group=DoctorDiabetes, 
+                                       color=DoctorDiabetes))+
+  geom_jitter(alpha=0.3)+
+  geom_boxplot()+
+  labs(title = "Weight vs Diagnosis of Diabetes", 
+       x="Doctor told you have Diabetes (0=No, 1=Yes)", 
+       y="Weight (kg)")+
+  theme(legend.position = "none")+theme(plot.title = element_text(hjust = 0.5)) + theme(text = element_text(size=25)) 
+#Weightplot
+```
+
+
+```{r}
+Cholesterolplot<-ggplot(diabetesNHANES, aes(DoctorDiabetes, Cholesterol, 
+                                  group=DoctorDiabetes, color=DoctorDiabetes))+
+  geom_jitter(alpha=0.3)+
+  geom_boxplot()+
+  labs(title = "Cholesterol by Diagnosis of Diabetes", 
+       x="Doctor told you have Diabetes (0=No, 1=Yes)", y="Total Cholesterol (mg/dL)")+
+  theme(legend.position = "none")+theme(plot.title = element_text(hjust = 0.5)) + theme(text = element_text(size=25)) 
+#Cholesterolplot
+```
+
+```{r}
+Creatineplot<-ggplot(diabetesNHANES, aes(DoctorDiabetes, Creatine, 
+                                  group=DoctorDiabetes, color=DoctorDiabetes))+
+  geom_jitter(alpha=0.3)+
+  geom_boxplot()+
+  labs(title = "Creatinine by Diagnosis of Diabetes", 
+       x="Doctor told you have Diabetes (0=No, 1=Yes)", 
+       y="Creatinine, urine (mg/dL)")+
+  theme(legend.position = "none") + theme(plot.title = element_text(hjust = 0.5)) + theme(text = element_text(size=25)) 
+#Creatineplot
+```
+
+
+
+```{r}
+Ageplot<-ggplot(diabetesNHANES, aes(DoctorDiabetes, Age, group=DoctorDiabetes, 
+                                    color=DoctorDiabetes))+
+  geom_jitter(alpha=0.3)+
+  geom_boxplot()+
+  labs(title = "Age vs Diagnosis of Diabetes", 
+       x="Doctor told you have Diabetes (0=No, 1=Yes)", 
+       y="Age in years at time of screening")+
+  theme(legend.position = "none") + theme(plot.title = element_text(hjust = 0.5)) + theme(text = element_text(size=25)) 
+#Ageplot
+```
+
+### Age and Weight Plots
+```{r, fig.height=4, fig.width=8}
+Ageplot+Weightplot
+```
+
+### Cholesterol and Creatining Plots
+```{r, fig.height=4, fig.width=8}
+Cholesterolplot+Creatineplot
+```
+
+
+```{r}
+AgeWeightplot<-ggplot(diabetesNHANES, aes(Age, Weight, color=DoctorDiabetes))+
+  geom_jitter(alpha=0.3)+
+  #geom_boxplot()
+  labs(title = "Age vs. Weight using Defined Diabetes Data", 
+       x="Age in years at screening", y="Weight (kg)")
+  #theme(legend.position = "none")
+AgeWeightplot
+```
+
+
+## Spliting the data into Training and Validation Data sets (70/30 split)
+
+```{r}
+5243*0.7
+
+#The training data set will have 3670 observations, validation 1573 observations
+diabetesTrain<-diabetesNHANES[1:3670,]
+diabetesTest<-diabetesNHANES[3671:5243,]
+```
+
+
+Comparing the testing to the training data set. We have roughly the same proportion of Yes/No observations in both the training and testing data sets. Knowing this, we will move forward with the analysis
+
+```{r}
+#Prop table for training data
+prop.table(table(diabetesTrain$DoctorDiabetes))
+#Prop table for test data
+prop.table(table(diabetesTest$DoctorDiabetes))
+```
+
+
+# Logistic Regression
+
+## DoctorDiabetes~MealsNotHomePrep+DiaBP+Weight+Cholesteral+Creatine+Age
+
+```{r}
+diabetesGLM1<-glm(DoctorDiabetes~Weight+Cholesterol+Creatine+Age, 
+                  data=diabetesTrain, family = "binomial")
+summary(diabetesGLM1)
+```
+
+# Tree Model
+
+```{r}
+diabetestree1<-rpart(DoctorDiabetes~Weight+Cholesterol+Creatine+Age, 
+                     data=diabetesTrain, cp=.01)
+draw.tree(diabetestree1, units = "P(Diabetes=1)")
+plot(as.party(diabetestree1), tp_args=list(id=FALSE))
+```
+```{r}
+draw.tree(diabetestree1, units = "P(Diabetes=1)")
+```
+
+```{r}
+exp(cbind(Odds.Ratio = coef(diabetesGLM1), confint(diabetesGLM1)))
+```
+
+
+# RMSE
+
+```{r}
+diabetesTest$glmpred<-predict(diabetesGLM1, newdata=diabetesTest, type="response")
+diabetesTest$treepred<-predict(diabetestree1, newdata=diabetesTest, type="vector")
+```
+```{r}
+glmRMSE=sqrt(sum((diabetesTest$DoctorDiabetes - diabetesTest$glmpred)^2)/1395)
+glmRMSE
+treeRMSE=sqrt(sum((diabetesTest$DoctorDiabetes - diabetesTest$treepred)^2)/1395)
+treeRMSE
+```
+
+# ROC Curves
+```{r}
+#par(mfrow=c(2,1))
+predicted<-plogis(predict(diabetesGLM1, diabetesTest))
+plotROC(diabetesTest$DoctorDiabetes, predicted)
+predictedtree<-plogis(predict(diabetestree1, diabetesTest))
+plotROC(diabetesTest$DoctorDiabetes, predictedtree)
+```
